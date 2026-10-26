@@ -1,7 +1,20 @@
-{
-  "name": "MangaLib RU",
-  "version": "1.0.0",
-  "language": "ru",
-  "description": "Русские манга-источники для Mangayomi",
-  "sourceCodeUrl": "https://raw.githubusercontent.com/Xprowl/mangayomi-ru-extensions/main/mangalib.js"
-}
+[
+  {
+    "id": 184729301,
+    "name": "MangaLib",
+    "baseUrl": "https://mangalib.me",
+    "lang": "ru",
+    "iconUrl": "https://mangalib.me/favicon.ico",
+    "typeSource": "single",
+    "itemType": 0,
+    "version": "0.1.0",
+    "notes": "MangaLib JS Extension",
+    "sourceCode": "",
+    "sourceCodeUrl": "https://raw.githubusercontent.com/Xprowl/mangayomi-ru-extensions/main/mangalib.js",
+    "sourceCodeLanguage": 1,
+    "isActive": true,
+    "isAdded": false,
+    "isNsfw": false,
+    "appMinVerReq": "0.0.1"
+  }
+]
