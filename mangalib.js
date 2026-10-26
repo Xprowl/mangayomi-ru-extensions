@@ -7,7 +7,7 @@ const mangayomiSources = [{
     "iconUrl": "https://mangalib.me/favicon.ico",
     "typeSource": "single",
     "itemType": 0,
-    "version": "0.1.4",
+    "version": "0.1.5",
     "isNsfw": false,
     "pkgPath": "manga/src/ru/mangalib.js"
 }];
@@ -23,6 +23,13 @@ class DefaultExtension extends MProvider {
             "Origin": "https://mangalib.me",
             "Site-Id": "1",
             "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        };
+    }
+
+    getImageHeaders() {
+        return {
+            "Referer": "https://mangalib.me/",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         };
     }
@@ -104,9 +111,7 @@ class DefaultExtension extends MProvider {
 
     extractSlug(url) {
         if (!url) return "";
-        // убираем домен если есть
-        url = url.replace(/^https?:\/\/[^/]+/, "");
-        // /ru/manga/5757--slug  или просто 5757--slug
+        url = String(url).replace(/^https?:\/\/[^/]+/, "");
         const m = url.match(/(\d+--[a-z0-9\-]+)/i);
         if (m) return m[1];
         const m2 = url.match(/manga\/([^/?#]+)/i);
@@ -130,7 +135,6 @@ class DefaultExtension extends MProvider {
         else if (st.includes("заморож") || st.includes("приостанов")) status = 2;
         else if (st.includes("отмен")) status = 3;
 
-        // главы
         const chaptersData = await this.requestApi(`/manga/${slug}/chapters`);
         let chaptersRaw = [];
         if (Array.isArray(chaptersData?.data)) {
@@ -145,13 +149,11 @@ class DefaultExtension extends MProvider {
             const num = String(ch.number ?? "0");
             const chName = ch.name ? `Том ${vol} Глава ${num} — ${ch.name}` : `Том ${vol} Глава ${num}`;
 
-            // дата из branches
             let dateUpload = "0";
             if (ch.branches && ch.branches.length > 0 && ch.branches[0].created_at) {
                 dateUpload = String(new Date(ch.branches[0].created_at).getTime());
             }
 
-            // сканлятор
             let scanlator = "";
             if (ch.branches && ch.branches.length > 0 && ch.branches[0].teams) {
                 scanlator = ch.branches[0].teams.map(t => t.name).filter(Boolean).join(", ");
@@ -165,7 +167,6 @@ class DefaultExtension extends MProvider {
             });
         }
 
-        // от новых к старым
         chapters.reverse();
 
         return {
@@ -194,24 +195,32 @@ class DefaultExtension extends MProvider {
 
         const pagesRaw = data?.data?.pages || data?.pages || [];
         const pages = [];
+        const imgBase = "https://img3.cdnlibs.org";
+        const headers = this.getImageHeaders();
 
         for (const page of pagesRaw) {
-            let url = "";
+            let path = "";
             if (typeof page === "string") {
-                url = page;
+                path = page;
             } else {
-                url = page.url || page.image || "";
+                path = page.url || page.image || "";
             }
-            if (!url) continue;
+            if (!path) continue;
 
-            if (url.startsWith("http")) {
-                pages.push({ url: url });
-            } else if (url.startsWith("//")) {
-                pages.push({ url: "https:" + url });
+            let finalUrl = "";
+            if (path.startsWith("http://") || path.startsWith("https://")) {
+                finalUrl = path;
+            } else if (path.startsWith("//")) {
+                // //manga/... → https://img3.cdnlibs.org/manga/...
+                finalUrl = imgBase + path.substring(1);
             } else {
-                url = url.replace(/^\//, "");
-                pages.push({ url: "https://img3.cdnlibs.org/" + url });
+                finalUrl = imgBase + "/" + path.replace(/^\//, "");
             }
+
+            pages.push({
+                url: finalUrl,
+                headers: headers
+            });
         }
         return pages;
     }
