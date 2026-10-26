@@ -7,12 +7,16 @@ const mangayomiSources = [{
     "iconUrl": "https://mangalib.me/favicon.ico",
     "typeSource": "single",
     "itemType": 0,
-    "version": "0.1.0",
+    "version": "0.1.1",
     "isNsfw": false,
     "pkgPath": "manga/src/ru/mangalib.js"
 }];
 
 class DefaultExtension extends MProvider {
+    getApiUrl() {
+        return "https://api.cdnlibs.org/api";
+    }
+
     getHeaders() {
         return {
             "Referer": "https://mangalib.me/",
@@ -27,7 +31,7 @@ class DefaultExtension extends MProvider {
         if (!this.client) {
             this.client = new Client();
         }
-        let url = `${this.source.apiUrl}${path}`;
+        let url = `${this.getApiUrl()}${path}`;
         const query = Object.keys(params)
             .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)
             .join("&");
