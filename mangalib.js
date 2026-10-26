@@ -7,7 +7,7 @@ const mangayomiSources = [{
     "iconUrl": "https://mangalib.me/favicon.ico",
     "typeSource": "single",
     "itemType": 0,
-    "version": "0.1.2",
+    "version": "0.1.3",
     "isNsfw": false,
     "pkgPath": "manga/src/ru/mangalib.js"
 }];
@@ -43,17 +43,28 @@ class DefaultExtension extends MProvider {
 
     parseMangaList(data) {
         const list = [];
-        const items = data?.data || data?.items?.data || data || [];
+        let items = [];
+
+        if (Array.isArray(data)) {
+            items = data;
+        } else if (data && Array.isArray(data.data)) {
+            items = data.data;
+        } else if (data && data.data && Array.isArray(data.data.data)) {
+            items = data.data.data;
+        } else if (data && data.items && Array.isArray(data.items.data)) {
+            items = data.items.data;
+        }
+
         for (const item of items) {
             if (!item) continue;
             const slug = item.slug_url || item.slug || item.id;
             if (!slug) continue;
 
             const cover = item.cover || {};
-            const imageUrl = cover.default || cover.md || cover.thumb || item.image || "";
+            const imageUrl = cover.default || cover.md || cover.thumbnail || cover.thumb || item.image || "";
 
             list.push({
-                name: item.rus_name || item.name || item.eng_name || slug,
+                name: item.rus_name || item.name || item.eng_name || String(slug),
                 imageUrl: imageUrl,
                 link: `/ru/manga/${slug}`
             });
@@ -65,7 +76,7 @@ class DefaultExtension extends MProvider {
         const data = await this.requestApi("/manga", {
             "site_id[]": "1",
             "page": page,
-            "sort_by": "rating"
+            "sort_by": "views"
         });
         const list = this.parseMangaList(data);
         return {
@@ -111,10 +122,10 @@ class DefaultExtension extends MProvider {
         const manga = data?.data || data || {};
 
         const cover = manga.cover || {};
-        const imageUrl = cover.default || cover.md || cover.thumb || "";
+        const imageUrl = cover.default || cover.md || cover.thumbnail || cover.thumb || "";
 
         let author = "";
-        if (manga.authors && manga.authors.length > 0) {
+        if (manga.authors && Array.isArray(manga.authors) && manga.authors.length > 0) {
             author = manga.authors.map(a => a.name).filter(Boolean).join(", ");
         }
 
@@ -126,14 +137,14 @@ class DefaultExtension extends MProvider {
         else if (st.includes("отмен") || st.includes("canceled")) status = 3;
 
         const genre = [];
-        if (manga.genres) {
+        if (manga.genres && Array.isArray(manga.genres)) {
             for (const g of manga.genres) {
                 if (g.name) genre.push(g.name);
             }
         }
 
         const chaptersData = await this.requestApi(`/manga/${slug}/chapters`);
-        const chaptersRaw = chaptersData?.data || chaptersData || [];
+        const chaptersRaw = Array.isArray(chaptersData?.data) ? chaptersData.data : (Array.isArray(chaptersData) ? chaptersData : []);
         const chapters = [];
 
         for (const ch of chaptersRaw) {
@@ -151,7 +162,7 @@ class DefaultExtension extends MProvider {
         chapters.reverse();
 
         return {
-            title: manga.rus_name || manga.name || slug,
+            name: manga.rus_name || manga.name || slug,
             imageUrl: imageUrl,
             description: manga.summary || manga.description || "",
             author: author,
@@ -174,28 +185,23 @@ class DefaultExtension extends MProvider {
         const pagesRaw = data?.data?.pages || data?.pages || [];
         const pages = [];
 
-        const imgDomains = [
-            "https://img3.cdnlibs.org",
-            "https://img4.cdnlibs.org",
-            "https://img5.cdnlibs.org",
-            "https://img3.mixlib.me"
-        ];
-
         for (const page of pagesRaw) {
             let url = "";
             if (typeof page === "string") {
                 url = page;
             } else {
-                url = page.url || page.link || "";
+                url = page.url || page.link || page.image || "";
             }
 
             if (!url) continue;
 
             if (url.startsWith("http")) {
                 pages.push({ url: url });
+            } else if (url.startsWith("//")) {
+                pages.push({ url: `https:${url}` });
             } else {
                 url = url.replace(/^\//, "");
-                pages.push({ url: `${imgDomains[0]}/${url}` });
+                pages.push({ url: `https://img3.cdnlibs.org/${url}` });
             }
         }
 
