@@ -39,7 +39,6 @@ class DefaultExtension extends MProvider {
             this.client = new Client();
         }
         let url = `${this.getApiUrl()}${path}`;
-
         const keys = Object.keys(params);
         if (keys.length > 0) {
             const query = keys
@@ -47,7 +46,6 @@ class DefaultExtension extends MProvider {
                 .join("&");
             url += `?${query}`;
         }
-
         const res = await this.client.get(url, this.getHeaders());
         return JSON.parse(res.body);
     }
@@ -66,7 +64,6 @@ class DefaultExtension extends MProvider {
 
         for (const item of items) {
             if (!item) continue;
-
             const slug = item.slug_url || item.slug || String(item.id || "");
             if (!slug) continue;
 
@@ -79,7 +76,6 @@ class DefaultExtension extends MProvider {
                 link: slug
             });
         }
-
         return list;
     }
 
@@ -116,13 +112,10 @@ class DefaultExtension extends MProvider {
     extractSlug(url) {
         if (!url) return "";
         url = String(url).replace(/^https?:\/\/[^/]+/, "");
-
         const m = url.match(/(\d+--[a-z0-9\-]+)/i);
         if (m) return m[1];
-
         const m2 = url.match(/manga\/([^/?#]+)/i);
         if (m2) return m2[1];
-
         return url.replace(/^\/+|\/+$/g, "");
     }
 
@@ -142,58 +135,36 @@ class DefaultExtension extends MProvider {
         else if (st.includes("заморож") || st.includes("приостанов")) status = 2;
         else if (st.includes("отмен")) status = 3;
 
+        const chaptersData = await this.requestApi(`/manga/${slug}/chapters`);
+        let chaptersRaw = [];
+        if (Array.isArray(chaptersData?.data)) {
+            chaptersRaw = chaptersData.data;
+        } else if (Array.isArray(chaptersData)) {
+            chaptersRaw = chaptersData;
+        }
+
         const chapters = [];
-        let page = 1;
-        let hasMore = true;
+        for (const ch of chaptersRaw) {
+            const vol = String(ch.volume ?? "0");
+            const num = String(ch.number ?? "0");
+            const chName = ch.name ? `Том ${vol} Глава ${num} — ${ch.name}` : `Том ${vol} Глава ${num}`;
 
-        while (hasMore && page <= 20) {
-            const chaptersData = await this.requestApi(`/manga/${slug}/chapters`, {
-                page: page
+            let dateUpload = "0";
+            if (ch.branches && ch.branches.length > 0 && ch.branches[0].created_at) {
+                dateUpload = String(new Date(ch.branches[0].created_at).getTime());
+            }
+
+            let scanlator = "";
+            if (ch.branches && ch.branches.length > 0 && ch.branches[0].teams) {
+                scanlator = ch.branches[0].teams.map(t => t.name).filter(Boolean).join(", ");
+            }
+
+            chapters.push({
+                name: chName,
+                url: `${slug}|${vol}|${num}`,
+                dateUpload: dateUpload,
+                scanlator: scanlator
             });
-
-            let items = [];
-
-            if (Array.isArray(chaptersData?.data)) {
-                items = chaptersData.data;
-            } else if (Array.isArray(chaptersData)) {
-                items = chaptersData;
-            } else if (Array.isArray(chaptersData?.data?.data)) {
-                items = chaptersData.data.data;
-            }
-
-            if (!items.length) break;
-
-            for (const ch of items) {
-                if (!ch) continue;
-
-                const vol = String(ch.volume ?? "0");
-                const num = String(ch.number ?? "0");
-                const chapterId = ch.id || ch.slug || ch.chapter_id || `${slug}-${vol}-${num}`;
-
-                const chName = ch.name
-                    ? `Том ${vol} Глава ${num} — ${ch.name}`
-                    : `Том ${vol} Глава ${num}`;
-
-                let dateUpload = "0";
-                if (ch.branches && ch.branches.length > 0 && ch.branches[0].created_at) {
-                    dateUpload = String(new Date(ch.branches[0].created_at).getTime());
-                }
-
-                let scanlator = "";
-                if (ch.branches && ch.branches.length > 0 && ch.branches[0].teams) {
-                    scanlator = ch.branches[0].teams.map(t => t.name).filter(Boolean).join(", ");
-                }
-
-                chapters.push({
-                    name: chName,
-                    url: `${slug}|${chapterId}|${vol}|${num}`,
-                    dateUpload: dateUpload,
-                    scanlator: scanlator
-                });
-            }
-
-            page += 1;
-            hasMore = items.length >= 20;
         }
 
         chapters.reverse();
@@ -211,27 +182,16 @@ class DefaultExtension extends MProvider {
 
     async getPageList(chapterUrl) {
         const parts = String(chapterUrl).split("|");
-        if (parts.length < 4) return [];
+        if (parts.length < 3) return [];
 
         const slug = parts[0];
-        const chapterId = parts[1];
-        const volume = parts[2];
-        const number = parts[3];
+        const volume = parts[1];
+        const number = parts[2];
 
-        let data = null;
-
-        if (chapterId && String(chapterId) !== "undefined") {
-            data = await this.requestApi(`/manga/${slug}/chapter`, {
-                id: chapterId
-            });
-        }
-
-        if (!data || (!data?.data && !data?.pages && !Array.isArray(data))) {
-            data = await this.requestApi(`/manga/${slug}/chapter`, {
-                volume: volume,
-                number: number
-            });
-        }
+        const data = await this.requestApi(`/manga/${slug}/chapter`, {
+            volume: volume,
+            number: number
+        });
 
         const pagesRaw = data?.data?.pages || data?.pages || [];
         const pages = [];
@@ -240,22 +200,21 @@ class DefaultExtension extends MProvider {
 
         for (const page of pagesRaw) {
             let path = "";
-
             if (typeof page === "string") {
                 path = page;
             } else {
-                path = page.url || page.image || page.src || "";
+                path = page.url || page.image || "";
             }
-
             if (!path) continue;
 
             let finalUrl = "";
             if (path.startsWith("http://") || path.startsWith("https://")) {
                 finalUrl = path;
             } else if (path.startsWith("//")) {
-                finalUrl = "https:" + path;
+                // //manga/... → https://img3.cdnlibs.org/manga/...
+                finalUrl = imgBase + path.substring(1);
             } else {
-                finalUrl = imgBase + "/" + path.replace(/^\/+/, "");
+                finalUrl = imgBase + "/" + path.replace(/^\//, "");
             }
 
             pages.push({
@@ -263,7 +222,6 @@ class DefaultExtension extends MProvider {
                 headers: headers
             });
         }
-
         return pages;
     }
 
@@ -275,5 +233,3 @@ class DefaultExtension extends MProvider {
         return [];
     }
 }
-
-module.exports = new DefaultExtension();

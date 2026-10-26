@@ -1,2 +1,1 @@
-# mangayomi-ru-extensions
-Russian-language Mangayomi extensions repository
+Восстановлена рабочая версия source-файла MangaLib до правок с пагинацией глав. Это версия, которая уже была рабочей, но без части поздних глав.
