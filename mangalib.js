@@ -82,6 +82,8 @@ class DefaultExtension extends MProvider {
             items = data.data;
         } else if (data && data.data && Array.isArray(data.data.data)) {
             items = data.data.data;
+        } else if (data && data.data && Array.isArray(data.data.items)) {
+            items = data.data.items;
         }
 
         for (const item of items) {
@@ -141,8 +143,52 @@ class DefaultExtension extends MProvider {
         return url.replace(/^\/+|\/+$/g, "");
     }
 
+    normalizeChaptersResponse(payload) {
+        if (!payload) return [];
+
+        const candidates = [
+            payload,
+            payload.data,
+            payload.result,
+            payload.items,
+            payload.data?.data,
+            payload.data?.items,
+            payload.data?.chapters,
+            payload.chapters
+        ];
+
+        for (const value of candidates) {
+            if (Array.isArray(value)) return value;
+        }
+
+        return [];
+    }
+
+    getChaptersPageCount(payload) {
+        const raw = payload?.data ?? payload;
+        const total = Number(
+            raw?.last_page ??
+            raw?.total_pages ??
+            payload?.last_page ??
+            payload?.total_pages ??
+            0
+        );
+        return Number.isFinite(total) && total > 0 ? total : 0;
+    }
+
     async getDetail(url) {
         const slug = this.extractSlug(url);
+        if (!slug) {
+            return {
+                name: "",
+                imageUrl: "",
+                description: "",
+                author: "",
+                status: 5,
+                genre: [],
+                chapters: []
+            };
+        }
 
         const data = await this.requestApi(`/manga/${slug}`);
         const manga = data?.data || data || {};
@@ -159,40 +205,28 @@ class DefaultExtension extends MProvider {
 
         const chaptersMap = new Map();
         let page = 1;
-        const maxPages = 20;
+        const maxPages = 30;
 
         while (page <= maxPages) {
             const chaptersData = await this.requestApi(`/manga/${slug}/chapters`, {
                 page: page
             });
 
-            let chaptersRaw = [];
-            if (Array.isArray(chaptersData?.data)) {
-                chaptersRaw = chaptersData.data;
-            } else if (Array.isArray(chaptersData)) {
-                chaptersRaw = chaptersData;
-            } else if (Array.isArray(chaptersData?.data?.data)) {
-                chaptersRaw = chaptersData.data.data;
-            } else if (Array.isArray(chaptersData?.data?.items)) {
-                chaptersRaw = chaptersData.data.items;
-            } else if (Array.isArray(chaptersData?.items)) {
-                chaptersRaw = chaptersData.items;
-            } else {
-                break;
-            }
-
+            const chaptersRaw = this.normalizeChaptersResponse(chaptersData);
             if (!chaptersRaw.length) break;
 
             for (const ch of chaptersRaw) {
                 if (!ch) continue;
 
-                const volume = String(ch.volume ?? "0");
-                const number = String(ch.number ?? "0");
+                const volume = String(ch.volume ?? ch.vol ?? "0");
+                const number = String(ch.number ?? ch.num ?? "0");
                 const key = `${volume}|${number}`;
                 if (chaptersMap.has(key)) continue;
 
                 const branch = Array.isArray(ch.branches) && ch.branches.length > 0 ? ch.branches[0] : {};
-                const dateUpload = branch.created_at || ch.created_at || ch.updated_at || "0";
+                const rawDate = branch.created_at || ch.created_at || ch.updated_at || "0";
+                const parsedDate = Number(new Date(rawDate).getTime());
+                const dateUpload = Number.isFinite(parsedDate) ? String(parsedDate) : "0";
 
                 let scanlator = "";
                 if (branch && Array.isArray(branch.teams)) {
@@ -203,25 +237,17 @@ class DefaultExtension extends MProvider {
                 }
 
                 const chapterName = ch.name || ch.title || ch.slug || "";
-
                 chaptersMap.set(key, {
                     name: chapterName
                         ? `Том ${volume} Глава ${number} — ${chapterName}`
                         : `Том ${volume} Глава ${number}`,
                     url: `${slug}|${volume}|${number}`,
-                    dateUpload: String(new Date(dateUpload).getTime()) || "0",
+                    dateUpload: dateUpload,
                     scanlator: scanlator
                 });
             }
 
-            const totalPages = Number(
-                chaptersData?.last_page ??
-                chaptersData?.data?.last_page ??
-                chaptersData?.total_pages ??
-                chaptersData?.data?.total_pages ??
-                0
-            );
-
+            const totalPages = this.getChaptersPageCount(chaptersData);
             if (!totalPages || page >= totalPages) break;
             page += 1;
         }
