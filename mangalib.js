@@ -7,7 +7,7 @@ const mangayomiSources = [{
     "iconUrl": "https://mangalib.me/favicon.ico",
     "typeSource": "single",
     "itemType": 0,
-    "version": "0.1.5",
+    "version": "0.1.6",
     "isNsfw": false,
     "pkgPath": "manga/src/ru/mangalib.js"
 }];
