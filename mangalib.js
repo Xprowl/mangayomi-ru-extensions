@@ -3,18 +3,18 @@ const mangayomiSources = [{
     "name": "MangaLib",
     "lang": "ru",
     "baseUrl": "https://mangalib.me",
-    "apiUrl": "https://api.imglib.info/api",
+    "apiUrl": "https://api.cdnlibs.org/api",
     "iconUrl": "https://mangalib.me/favicon.ico",
     "typeSource": "single",
     "itemType": 0,
-    "version": "0.1.9",
+    "version": "0.2.0",
     "isNsfw": false,
     "pkgPath": "manga/src/ru/mangalib.js"
 }];
 
 class DefaultExtension extends MProvider {
     getApiUrl() {
-        return "https://api.imglib.info/api";
+        return "https://api.cdnlibs.org/api";
     }
 
     getHeaders() {
@@ -34,432 +34,193 @@ class DefaultExtension extends MProvider {
         };
     }
 
-    safeJsonParse(body) {
-        if (body === null || body === undefined) return {};
-        if (typeof body === "object") return body;
-
-        const text = String(body).trim();
-        if (!text) return {};
-
-        try {
-            return JSON.parse(text);
-        } catch (e) {
-            console.error("MangaLib JSON parse error:", e);
-            return {};
-        }
-    }
-
-    async requestApi(path, params = {}) {
-        if (!this.client) {
-            this.client = new Client();
-        }
-
-        let url = `${this.getApiUrl()}${path}`;
+    async requestApi(path, params) {
+        if (!this.client) this.client = new Client();
+        params = params || {};
+        let url = this.getApiUrl() + path;
         const keys = Object.keys(params);
-
         if (keys.length > 0) {
-            const query = keys.map(k =>
-                `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`
-            ).join("&");
-
-            url += `?${query}`;
+            url += "?" + keys.map(function (k) {
+                return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]);
+            }).join("&");
         }
-
-        try {
-            const res = await this.client.get(url, this.getHeaders());
-            return this.safeJsonParse(res?.body);
-        } catch (e) {
-            console.error("MangaLib request failed:", url, e);
-            return {};
-        }
+        const res = await this.client.get(url, this.getHeaders());
+        return JSON.parse(res.body);
     }
 
     parseMangaList(data) {
-        let items = [];
-
-        if (Array.isArray(data)) {
-            items = data;
-        } else if (Array.isArray(data?.data)) {
-            items = data.data;
-        } else if (Array.isArray(data?.data?.data)) {
-            items = data.data.data;
-        } else if (Array.isArray(data?.data?.items)) {
-            items = data.data.items;
-        } else if (Array.isArray(data?.items)) {
-            items = data.items;
-        }
-
         const list = [];
+        let items = [];
+        if (Array.isArray(data)) items = data;
+        else if (data && Array.isArray(data.data)) items = data.data;
 
-        for (const item of items) {
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
             if (!item) continue;
-
-            const slug =
-                item.slug_url ||
-                item.slug ||
-                String(item.id || "");
-
+            const slug = item.slug_url || item.slug || String(item.id || "");
             if (!slug) continue;
-
             const cover = item.cover || {};
-
             list.push({
                 name: item.rus_name || item.name || item.eng_name || slug,
                 imageUrl: cover.default || cover.md || cover.thumbnail || "",
                 link: slug
             });
         }
-
         return list;
     }
 
     async getPopular(page) {
         const data = await this.requestApi("/manga", {
             "site_id[]": "1",
-            page,
-            sort_by: "views"
+            "page": page,
+            "sort_by": "views"
         });
-
         const list = this.parseMangaList(data);
-
-        return {
-            list,
-            hasNextPage: list.length >= 20
-        };
+        return { list: list, hasNextPage: list.length >= 20 };
     }
 
     async getLatestUpdates(page) {
         const data = await this.requestApi("/manga", {
             "site_id[]": "1",
-            page,
-            sort_by: "last_chapter_at"
+            "page": page,
+            "sort_by": "last_chapter_at"
         });
-
         const list = this.parseMangaList(data);
-
-        return {
-            list,
-            hasNextPage: list.length >= 20
-        };
+        return { list: list, hasNextPage: list.length >= 20 };
     }
 
     async search(query, page, filters) {
         const data = await this.requestApi("/manga", {
             "site_id[]": "1",
-            q: query,
-            page
+            "q": query,
+            "page": page
         });
-
         const list = this.parseMangaList(data);
-
-        return {
-            list,
-            hasNextPage: list.length >= 20
-        };
+        return { list: list, hasNextPage: list.length >= 20 };
     }
 
     extractSlug(url) {
         if (!url) return "";
-
         url = String(url).replace(/^https?:\/\/[^/]+/, "");
-
-        const match = url.match(/(\d+--[a-z0-9-]+)/i);
-        if (match) return match[1];
-
-        const match2 = url.match(/manga\/([^/?#]+)/i);
-        if (match2) return match2[1];
-
+        const m = url.match(/(\d+--[a-z0-9\-]+)/i);
+        if (m) return m[1];
+        const m2 = url.match(/manga\/([^/?#]+)/i);
+        if (m2) return m2[1];
         return url.replace(/^\/+|\/+$/g, "");
-    }
-
-    normalizeChaptersResponse(payload) {
-        if (!payload) return [];
-
-        const candidates = [
-            payload,
-            payload.data,
-            payload.result,
-            payload.items,
-            payload.chapters,
-            payload.data?.data,
-            payload.data?.items,
-            payload.data?.chapters,
-            payload.data?.data?.data,
-            payload.data?.data?.items
-        ];
-
-        for (const candidate of candidates) {
-            if (Array.isArray(candidate)) {
-                return candidate;
-            }
-        }
-
-        return [];
-    }
-
-    getChaptersPageCount(payload) {
-        const candidates = [
-            payload?.meta,
-            payload?.pagination,
-            payload?.data?.meta,
-            payload?.data?.pagination,
-            payload?.data,
-            payload
-        ];
-
-        for (const item of candidates) {
-            const total = Number(
-                item?.last_page ??
-                item?.lastPage ??
-                item?.total_pages ??
-                item?.totalPages ??
-                item?.pages ??
-                0
-            );
-
-            if (Number.isFinite(total) && total > 0) {
-                return total;
-            }
-        }
-
-        return 0;
-    }
-
-    chapterNumberValue(value) {
-        const s = String(value ?? "0").trim().replace(",", ".");
-        const match = s.match(/-?\d+(?:\.\d+)?/);
-
-        return match ? Number(match[0]) : 0;
     }
 
     async getDetail(url) {
         const slug = this.extractSlug(url);
+        if (!slug) {
+            return { name: "", imageUrl: "", description: "", author: "", status: 5, genre: [], chapters: [] };
+        }
 
-        const empty = {
-            name: "",
-            imageUrl: "",
-            description: "",
-            author: "",
-            status: 5,
-            genre: [],
-            chapters: []
-        };
-
-        if (!slug) return empty;
-
-        const data = await this.requestApi(`/manga/${slug}`);
-        const manga = data?.data || data || {};
+        const data = await this.requestApi("/manga/" + slug);
+        const manga = (data && data.data) ? data.data : (data || {});
         const cover = manga.cover || {};
-
-        const imageUrl =
-            cover.default ||
-            cover.md ||
-            cover.thumbnail ||
-            "";
+        const imageUrl = cover.default || cover.md || cover.thumbnail || "";
 
         let status = 5;
-        const st = String(manga.status?.label || "").toLowerCase();
+        const st = String((manga.status && manga.status.label) || "").toLowerCase();
+        if (st.indexOf("онгоинг") !== -1 || st.indexOf("продолжается") !== -1) status = 0;
+        else if (st.indexOf("заверш") !== -1 || st.indexOf("закончен") !== -1) status = 1;
+        else if (st.indexOf("заморож") !== -1 || st.indexOf("приостанов") !== -1) status = 2;
+        else if (st.indexOf("отмен") !== -1) status = 3;
 
-        if (st.includes("онгоинг") || st.includes("продолжается")) {
-            status = 0;
-        } else if (st.includes("заверш") || st.includes("закончен")) {
-            status = 1;
-        } else if (st.includes("заморож") || st.includes("приостанов")) {
-            status = 2;
-        } else if (st.includes("отмен")) {
-            status = 3;
-        }
+        // Один запрос — API отдаёт все главы сразу
+        const chaptersData = await this.requestApi("/manga/" + slug + "/chapters");
+        let chaptersRaw = [];
+        if (chaptersData && Array.isArray(chaptersData.data)) chaptersRaw = chaptersData.data;
+        else if (Array.isArray(chaptersData)) chaptersRaw = chaptersData;
 
-        const chaptersMap = new Map();
-        const seenPages = new Set();
+        const chapters = [];
+        for (let i = 0; i < chaptersRaw.length; i++) {
+            const ch = chaptersRaw[i];
+            if (!ch) continue;
 
-        let page = 1;
-        const maxPages = 200;
+            const volume = String(ch.volume != null ? ch.volume : "0");
+            const number = String(ch.number != null ? ch.number : "0");
+            const title = ch.name ? ("Том " + volume + " Глава " + number + " — " + ch.name)
+                                  : ("Том " + volume + " Глава " + number);
 
-        while (page <= maxPages) {
-            const chaptersData = await this.requestApi(
-                `/manga/${slug}/chapters`,
-                { page }
-            );
-
-            const chaptersRaw =
-                this.normalizeChaptersResponse(chaptersData);
-
-            if (chaptersRaw.length === 0) break;
-
-            // Останавливаемся, если API повторно возвращает тот же список.
-            const signature = chaptersRaw.map(ch =>
-                `${ch?.id ?? ""}:${ch?.volume ?? ch?.vol ?? ""}:${ch?.number ?? ch?.num ?? ""}:${ch?.slug ?? ""}:${ch?.name ?? ch?.title ?? ""}`
-            ).join(",");
-
-            if (seenPages.has(signature)) break;
-            seenPages.add(signature);
-
-            for (const ch of chaptersRaw) {
-                if (!ch) continue;
-
-                const volume = String(ch.volume ?? ch.vol ?? "0");
-                const number = String(ch.number ?? ch.num ?? "0");
-
-                const id =
-                    ch.id ??
-                    ch.chapter_id ??
-                    ch.chapterId;
-
-                // Не удаляем разные главы только из-за совпадения номера.
-                const key = id != null
-                    ? `id:${id}`
-                    : `${volume}|${number}|${ch.slug ?? ch.name ?? ch.title ?? ""}`;
-
-                if (chaptersMap.has(key)) continue;
-
-                const branches = Array.isArray(ch.branches)
-                    ? ch.branches
-                    : [];
-
-                const branch = branches[0] || {};
-
-                const rawDate =
-                    branch.created_at ||
-                    ch.created_at ||
-                    ch.updated_at ||
-                    "";
-
-                const parsedDate = rawDate
-                    ? new Date(rawDate).getTime()
-                    : 0;
-
-                const scanlator = Array.isArray(branch.teams)
-                    ? branch.teams
-                        .map(team => team?.name)
-                        .filter(Boolean)
-                        .join(", ")
-                    : "";
-
-                const chapterName =
-                    ch.name ||
-                    ch.title ||
-                    ch.slug ||
-                    "";
-
-                chaptersMap.set(key, {
-                    name: chapterName
-                        ? `Том ${volume} Глава ${number} — ${chapterName}`
-                        : `Том ${volume} Глава ${number}`,
-
-                    // Формат сохраняем совместимым с getPageList().
-                    url: `${slug}|${encodeURIComponent(volume)}|${encodeURIComponent(number)}`,
-
-                    dateUpload: String(
-                        Number.isFinite(parsedDate) ? parsedDate : 0
-                    ),
-
-                    scanlator
-                });
+            let dateUpload = "0";
+            let scanlator = "";
+            if (ch.branches && ch.branches.length > 0) {
+                const br = ch.branches[0];
+                if (br.created_at) {
+                    const t = new Date(br.created_at).getTime();
+                    if (t && !isNaN(t)) dateUpload = String(t);
+                }
+                if (br.teams && br.teams.length) {
+                    const names = [];
+                    for (let j = 0; j < br.teams.length; j++) {
+                        if (br.teams[j] && br.teams[j].name) names.push(br.teams[j].name);
+                    }
+                    scanlator = names.join(", ");
+                }
             }
 
-            const totalPages =
-                this.getChaptersPageCount(chaptersData);
-
-            if (totalPages > 0 && page >= totalPages) {
-                break;
-            }
-
-            page += 1;
+            chapters.push({
+                name: title,
+                url: slug + "|" + volume + "|" + number,
+                dateUpload: dateUpload,
+                scanlator: scanlator
+            });
         }
 
-        const chapters = [...chaptersMap.values()].sort((a, b) => {
-            const aParts = String(a.url).split("|");
-            const bParts = String(b.url).split("|");
-
-            const aVolume = this.chapterNumberValue(
-                decodeURIComponent(aParts[1] || "0")
-            );
-
-            const bVolume = this.chapterNumberValue(
-                decodeURIComponent(bParts[1] || "0")
-            );
-
-            const aNumber = this.chapterNumberValue(
-                decodeURIComponent(aParts[2] || "0")
-            );
-
-            const bNumber = this.chapterNumberValue(
-                decodeURIComponent(bParts[2] || "0")
-            );
-
-            return aVolume - bVolume || aNumber - bNumber;
-        });
+        // Новые сверху
+        chapters.reverse();
 
         return {
             name: manga.rus_name || manga.name || manga.eng_name || slug,
-            imageUrl,
+            imageUrl: imageUrl,
             description: manga.summary || manga.description || "",
             author: "",
-            status,
+            status: status,
             genre: [],
-            chapters
+            chapters: chapters
         };
     }
 
     async getPageList(chapterUrl) {
         const parts = String(chapterUrl).split("|");
-
         if (parts.length < 3) return [];
 
         const slug = parts[0];
-        const volume = decodeURIComponent(parts[1]);
-        const number = decodeURIComponent(parts[2]);
+        const volume = parts[1];
+        const number = parts[2];
 
-        const data = await this.requestApi(
-            `/manga/${slug}/chapter`,
-            {
-                volume,
-                number
-            }
-        );
+        const data = await this.requestApi("/manga/" + slug + "/chapter", {
+            volume: volume,
+            number: number
+        });
 
-        const pagesRaw =
-            data?.data?.pages ??
-            data?.pages ??
-            data?.data?.data?.pages ??
-            data?.data?.items ??
-            data?.items ??
-            [];
-
-        if (!Array.isArray(pagesRaw)) return [];
+        let pagesRaw = [];
+        if (data && data.data && Array.isArray(data.data.pages)) pagesRaw = data.data.pages;
+        else if (data && Array.isArray(data.pages)) pagesRaw = data.pages;
 
         const pages = [];
         const imgBase = "https://img3.cdnlibs.org";
         const headers = this.getImageHeaders();
 
-        for (const item of pagesRaw) {
+        for (let i = 0; i < pagesRaw.length; i++) {
+            const page = pagesRaw[i];
             let path = "";
-
-            if (typeof item === "string") {
-                path = item;
-            } else if (item) {
-                path = item.url || item.image || item.path || "";
-            }
-
+            if (typeof page === "string") path = page;
+            else if (page) path = page.url || page.image || "";
             if (!path) continue;
 
-            let finalUrl;
-
-            if (/^https?:\/\//i.test(path)) {
+            let finalUrl = "";
+            if (path.indexOf("http://") === 0 || path.indexOf("https://") === 0) {
                 finalUrl = path;
-            } else if (path.startsWith("//")) {
-                finalUrl = `https:${path}`;
+            } else if (path.indexOf("//") === 0) {
+                finalUrl = imgBase + path.substring(1);
             } else {
-                finalUrl = `${imgBase}/${path.replace(/^\/+/, "")}`;
+                finalUrl = imgBase + "/" + path.replace(/^\//, "");
             }
 
-            pages.push({
-                url: finalUrl,
-                headers
-            });
+            pages.push({ url: finalUrl, headers: headers });
         }
-
         return pages;
     }
 
